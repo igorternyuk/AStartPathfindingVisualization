@@ -21,8 +21,7 @@ private:
         TILE_SIZE = 40,
         BORDER_WIDTH = 10,
         SCREEN_WIDTH = TILE_SIZE * GRID_WIDTH + BORDER_WIDTH,
-        SCREEN_HEIGHT = TILE_SIZE * GRID_HEIGHT + BORDER_WIDTH,
-        INFINITY = GRID_WIDTH * GRID_HEIGHT + 10
+        SCREEN_HEIGHT = TILE_SIZE * GRID_HEIGHT + BORDER_WIDTH
     };
     const std::string TITLE_OF_MAIN_WINDOW { "A*-Pathfinder" };
     const sf::Time mFrameTime { sf::seconds(1.0f /FPS) };
@@ -36,12 +35,12 @@ private:
         float localGoal;
         float globalGoal;
         std::vector<Node*> neighbours;
-        Node* parent;
+        Node* prev;
     };
 
     Node mGrid[GRID_HEIGHT][GRID_WIDTH];
     Node* mStart;
-    Node* mGoal;
+    Node* mTarget;
     enum class HeuristicType
     {
         PYTHAGOREAN_DISTANCE,
@@ -49,12 +48,15 @@ private:
         ZERO
     };
     std::map<HeuristicType, std::function<float(Node*, Node*)>> mHeuristics;
-    void initNodes();
+    void initNodes(bool resetObstacles = true);
     void initHeuristics();
     void createConnections();
     bool isValidCoordinates(int x, int y) const;
     void drawLine(int x1, int y1, int x2, int y2, int thickness = 1,
                   sf::Color color = sf::Color::White);
+    void drawConnections();
+    void drawGrid();
+    void drawPath();
     void inputPhase();
     void solve();
     void updatePhase(sf::Time frameTime);

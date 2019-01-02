@@ -9,9 +9,9 @@ Game::Game():
     mWindow.setFramerateLimit(FPS);
     centralizeWindow();
     initHeuristics();
-    initNodes();
     mStart = &mGrid[0][0];
-    mGoal = &mGrid[GRID_HEIGHT - 1][GRID_WIDTH - 1];
+    mTarget = &mGrid[GRID_HEIGHT - 1][GRID_WIDTH - 1];
+    initNodes();
 }
 
 void Game::run()
@@ -33,7 +33,7 @@ void Game::run()
     }
 }
 
-void Game::initNodes()
+void Game::initNodes(bool resetObstacles)
 {
     for(int y = 0; y < GRID_HEIGHT; ++y)
     {
@@ -41,9 +41,12 @@ void Game::initNodes()
         {
             mGrid[y][x].x = x;
             mGrid[y][x].y = y;
-            mGrid[y][x].isObstacle = false;
+            if(resetObstacles)
+            {
+                mGrid[y][x].isObstacle = false;
+            }
             mGrid[y][x].isVisited = false;
-            mGrid[y][x].parent = nullptr;
+            mGrid[y][x].prev = nullptr;
             mGrid[y][x].localGoal = INFINITY;
             mGrid[y][x].globalGoal = INFINITY;
         }
@@ -69,14 +72,14 @@ void Game::initHeuristics()
 
 void Game::createConnections()
 {
-    const int dx[] { 1, 0, -1, 0 };
-    const int dy[] { 0, 1, 0, -1 };
+    const int dx[] { 1, 0, -1, 0, 1, -1, -1, 1};
+    const int dy[] { 0, 1, 0, -1, 1, 1, -1, -1 };
     for(int y = 0; y < GRID_HEIGHT; ++y)
     {
         for(int x = 0; x < GRID_WIDTH; ++x)
         {
             mGrid[y][x].neighbours.clear();
-            for(int dir = 0; dir < 4; ++dir)
+            for(int dir = 0; dir < 8; ++dir)
             {
                 int nx = x + dx[dir];
                 int ny = y + dy[dir];
@@ -106,6 +109,8 @@ void Game::drawLine(int x1, int y1, int x2, int y2, int thickness, sf::Color col
     mWindow.draw(line);
 }
 
+
+
 void Game::inputPhase()
 {
     sf::Event event;
@@ -131,7 +136,7 @@ void Game::inputPhase()
                 }
                 else if(event.mouseButton.button == sf::Mouse::Right)
                 {
-                    mGoal = &mGrid[my][mx];
+                    mTarget = &mGrid[my][mx];
                 }
                 solve();
             }
@@ -142,17 +147,25 @@ void Game::inputPhase()
 
 void Game::solve()
 {
-    initNodes();
-    std::priority_queue<Node*, std::vector<Node*>, std::function<bool(Node*, Node*)>> openSet(
-        [](Node* a, Node* b){
-               return a->globalGoal < b->globalGoal;
-        });
+    initNodes(false);
 
-    openSet.push(mStart);
+    std::priority_queue<Node*, std::vector<Node*>, std::function<bool(Node*, Node*)>> openSet(
+        [](Node* lhs, Node* rhs){
+               return lhs->globalGoal > rhs->globalGoal;
+        });
     auto heuristic = mHeuristics[HeuristicType::MANHATTAN_DISTANCE];
+    mStart->localGoal = 0;
+    mStart->globalGoal = heuristic(mStart, mTarget);
+    openSet.push(mStart);
+
     while (!openSet.empty()) {
         auto current = openSet.top();
+        if(current == mTarget)
+        {
+            break;
+        }
         current->isVisited = true;
+        openSet.pop();
         for(auto &neighbour: current->neighbours)
         {
             if(!neighbour->isVisited)
@@ -162,24 +175,29 @@ void Game::solve()
                         + heuristic(current, neighbour);
                 if(possiblyLowerGoal < neighbour->localGoal)
                 {
-                    neighbour->parent = current;
+                    neighbour->prev = current;
                     neighbour->localGoal = possiblyLowerGoal;
-                    neighbour->globalGoal = possiblyLowerGoal + heuristic(neighbour, mGoal);
+                    neighbour->globalGoal = possiblyLowerGoal + heuristic(neighbour, mTarget);
                 }
             }
         }
-        openSet.pop();
     }
 }
 
 void Game::updatePhase(sf::Time frameTime)
-{
-
-}
+{}
 
 void Game::renderPhase()
 {
     mWindow.clear();
+    drawConnections();
+    drawGrid();
+    drawPath();
+    mWindow.display();
+}
+
+void Game::drawConnections()
+{
     for(int y = 0; y < GRID_HEIGHT; ++y)
     {
         for(int x = 0; x < GRID_WIDTH; ++x)
@@ -187,14 +205,6 @@ void Game::renderPhase()
             auto neighbours = mGrid[y][x].neighbours;
             for(auto &n: neighbours)
             {
-                /*sf::VertexArray connection(sf::LineStrip, 2);
-                connection[0].position.x = x * TILE_SIZE + TILE_SIZE / 2 + BORDER_WIDTH / 2;
-                connection[0].position.y = y * TILE_SIZE + TILE_SIZE / 2 + BORDER_WIDTH / 2;
-                connection[0].color = sf::Color::Blue;
-                connection[1].position.x = n->x * TILE_SIZE + TILE_SIZE / 2 + BORDER_WIDTH / 2;
-                connection[1].position.y = n->y * TILE_SIZE + TILE_SIZE / 2 + BORDER_WIDTH / 2;
-                connection[1].color = sf::Color::Blue;
-                mWindow.draw(connection);*/
                 int x1 = mGrid[y][x].x * TILE_SIZE + TILE_SIZE / 2 + BORDER_WIDTH / 2;
                 int y1 = mGrid[y][x].y * TILE_SIZE + TILE_SIZE / 2 + BORDER_WIDTH / 2;
                 int x2 = n->x * TILE_SIZE + TILE_SIZE / 2 + BORDER_WIDTH / 2;
@@ -202,9 +212,11 @@ void Game::renderPhase()
                 drawLine(x1, y1, x2, y2, 4, sf::Color::Blue);
             }
         }
-
     }
+}
 
+void Game::drawGrid()
+{
     for(int y = 0; y < GRID_HEIGHT; ++y)
     {
         for(int x = 0; x < GRID_WIDTH; ++x)
@@ -213,45 +225,44 @@ void Game::renderPhase()
             node.setPosition(x * TILE_SIZE + BORDER_WIDTH, y * TILE_SIZE + BORDER_WIDTH);
             node.setSize(sf::Vector2f(TILE_SIZE - BORDER_WIDTH, TILE_SIZE - BORDER_WIDTH));
             node.setFillColor(sf::Color::Blue);
-            if(x == mStart->x && y == mStart->y)
-            {
-                node.setFillColor(sf::Color::Green);
-            }
-            else if(x == mGoal->x && y == mGoal->y)
-            {
-                node.setFillColor(sf::Color::Red);
-            }
-
             if(mGrid[y][x].isVisited)
             {
                 node.setFillColor(sf::Color::Cyan);
-            }if(mGrid[y][x].isObstacle)
-            {
-                node.setFillColor(sf::Color(255,233,127));
             }
-
             if(mGrid[y][x].isObstacle)
             {
                 node.setFillColor(sf::Color(255,233,127));
             }
+
+            if(x == mStart->x && y == mStart->y)
+            {
+                node.setFillColor(sf::Color::Green);
+            }
+            else if(x == mTarget->x && y == mTarget->y)
+            {
+                node.setFillColor(sf::Color::Red);
+            }
+
             mWindow.draw(node);
         }
     }
+}
 
-    if(mGoal->parent != nullptr)
+void Game::drawPath()
+{
+    if(mTarget->prev != nullptr)
     {
-        Node* curr = mGoal;
-        while(curr->parent)
+        Node* curr = mTarget;
+        while(curr->prev)
         {
             int x1 = curr->x * TILE_SIZE + TILE_SIZE / 2 + BORDER_WIDTH / 2;
             int y1 = curr->y * TILE_SIZE + TILE_SIZE / 2 + BORDER_WIDTH / 2;
-            int x2 = curr->parent->x * TILE_SIZE + TILE_SIZE / 2 + BORDER_WIDTH / 2;
-            int y2 = curr->parent->y * TILE_SIZE + TILE_SIZE / 2  + BORDER_WIDTH / 2;
+            int x2 = curr->prev->x * TILE_SIZE + TILE_SIZE / 2 + BORDER_WIDTH / 2;
+            int y2 = curr->prev->y * TILE_SIZE + TILE_SIZE / 2  + BORDER_WIDTH / 2;
             drawLine(x1, y1, x2, y2, 8, sf::Color::Yellow);
-            curr = curr->parent;
+            curr = curr->prev;
         }
     }
-    mWindow.display();
 }
 
 void Game::centralizeWindow()
